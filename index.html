@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculadora LU: Doolittle, Crout y Cholesky</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        .matrix-grid {
+            display: grid;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        .step-card {
+            border-left: 4px solid #3b82f6;
+            background: #f8fafc;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4 md:p-8">
+    <div class="max-w-5xl mx-auto bg-white rounded-xl shadow-lg p-6">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">Calculadora de Factorización LU</h1>
+        <p class="text-gray-600 mb-8">Resuelve sistemas de ecuaciones lineales $Ax = b$ mediante descomposición matricial.</p>
+
+        <!-- Configuración Inicial -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 p-4 bg-blue-50 rounded-lg">
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Dimensión de la Matriz (n):</label>
+                <input type="number" id="matrixSize" min="2" max="6" value="3" 
+                    class="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Método de Factorización:</label>
+                <select id="methodSelect" class="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none">
+                    <option value="doolittle">Doolittle (Lii = 1)</option>
+                    <option value="crout">Crout (Uii = 1)</option>
+                    <option value="cholesky">Cholesky (A = LLᵀ)</option>
+                </select>
+            </div>
+            <button onclick="generateInputs()" class="md:col-span-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition">
+                Generar / Reiniciar Matriz
+            </button>
+        </div>
+
+        <!-- Entrada de Datos -->
+        <div id="inputSection" class="hidden">
+            <h2 class="text-xl font-semibold mb-4 text-gray-700 text-center">Ingresa los coeficientes [A | b]</h2>
+            <div id="matrixContainer" class="overflow-x-auto pb-4"></div>
+            
+            <div class="flex justify-center mt-6">
+                <button onclick="solveSystem()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition transform hover:scale-105">
+                    Calcular Solución
+                </button>
+            </div>
+        </div>
+
+        <!-- Resultados -->
+        <div id="resultSection" class="hidden mt-12 space-y-8">
+            <hr>
+            <h2 class="text-2xl font-bold text-gray-800">Resultados del Proceso</h2>
+            
+            <div id="matricesDisplay" class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Aquí se mostrarán L y U -->
+            </div>
+
+            <div id="solutionSteps" class="space-y-4">
+                <!-- Aquí se mostrarán y y x -->
+            </div>
+        </div>
+
+        <div id="errorMessage" class="hidden mt-4 p-4 bg-red-100 text-red-700 rounded-lg border border-red-200"></div>
+    </div>
+
+    <script>
+        let currentSize = 3;
+
+        function generateInputs() {
+            const size = parseInt(document.getElementById('matrixSize').value);
+            if (size < 2 || size > 6) {
+                showError("La dimensión debe estar entre 2 y 6.");
+                return;
+            }
+            
+            currentSize = size;
+            const container = document.getElementById('matrixContainer');
+            container.innerHTML = '';
+            document.getElementById('inputSection').classList.remove('hidden');
+            document.getElementById('resultSection').classList.add('hidden');
+            document.getElementById('errorMessage').classList.add('hidden');
+
+            const grid = document.createElement('div');
+            grid.className = 'matrix-grid';
+            // n columnas para A + 1 columna para b
+            grid.style.gridTemplateColumns = `repeat(${size}, minmax(80px, 1fr)) 40px minmax(80px, 1fr)`;
+
+            for (let i = 0; i < size; i++) {
+                for (let j = 0; j < size; j++) {
+                    grid.appendChild(createInput(`a_${i}_${j}`, `A[${i+1},${j+1}]`));
+                }
+                // Separador visual
+                const sep = document.createElement('div');
+                sep.className = 'flex items-center justify-center font-bold text-gray-400';
+                sep.innerText = '|';
+                grid.appendChild(sep);
+                // Vector b
+                grid.appendChild(createInput(`b_${i}`, `b[${i+1}]`, 'bg-yellow-50 border-yellow-200'));
+            }
+            container.appendChild(grid);
+        }
+
+        function createInput(id, placeholder, extraClass = '') {
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.id = id;
+            input.step = 'any';
+            input.placeholder = placeholder;
+            input.className = `w-full p-2 border rounded text-center focus:border-blue-500 outline-none ${extraClass}`;
+            return input;
+        }
+
+        function getMatrixData() {
+            const A = [];
+            const b = [];
+            for (let i = 0; i < currentSize; i++) {
+                const row = [];
+                for (let j = 0; j < currentSize; j++) {
+                    const val = parseFloat(document.getElementById(`a_${i}_${j}`).value);
+                    if (isNaN(val)) return null;
+                    row.push(val);
+                }
+                A.push(row);
+                const bVal = parseFloat(document.getElementById(`b_${i}`).value);
+                if (isNaN(bVal)) return null;
+                b.push(bVal);
+            }
+            return { A, b };
+        }
+
+        function solveSystem() {
+            const data = getMatrixData();
+            if (!data) {
+                showError("Por favor, completa todos los campos con números válidos.");
+                return;
+            }
+
+            const { A, b } = data;
+            const method = document.getElementById('methodSelect').value;
+            let L, U;
+
+            try {
+                document.getElementById('errorMessage').classList.add('hidden');
+                
+                if (method === 'doolittle') {
+                    ({ L, U } = factorizeDoolittle(A, currentSize));
+                } else if (method === 'crout') {
+                    ({ L, U } = factorizeCrout(A, currentSize));
+                } else if (method === 'cholesky') {
+                    ({ L, U } = factorizeCholesky(A, currentSize));
+                }
+
+                // Resolver Ly = b
+                const y = solveForward(L, b, currentSize);
+                // Resolver Ux = y
+                const x = solveBackward(U, y, currentSize);
+
+                displayResults(L, U, y, x);
+
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        // --- ALGORITMOS DE FACTORIZACIÓN ---
+
+        function factorizeDoolittle(A, n) {
+            let L = Array.from({ length: n }, (_, i) => Array(n).fill(0).map((_, j) => i === j ? 1 : 0));
+            let U = Array.from({ length: n }, () => Array(n).fill(0));
+
+            for (let i = 0; i < n; i++) {
+                for (let k = i; k < n; k++) {
+                    let sum = 0;
+                    for (let j = 0; j < i; j++) sum += L[i][j] * U[j][k];
+                    U[i][k] = A[i][k] - sum;
+                }
+                for (let k = i + 1; k < n; k++) {
+                    let sum = 0;
+                    for (let j = 0; j < i; j++) sum += L[k][j] * U[j][i];
+                    if (U[i][i] === 0) throw new Error("Error: División por cero en Doolittle (pivote nulo).");
+                    L[k][i] = (A[k][i] - sum) / U[i][i];
+                }
+            }
+            return { L, U };
+        }
+
+        function factorizeCrout(A, n) {
+            let L = Array.from({ length: n }, () => Array(n).fill(0));
+            let U = Array.from({ length: n }, (_, i) => Array(n).fill(0).map((_, j) => i === j ? 1 : 0));
+
+            for (let j = 0; j < n; j++) {
+                for (let i = j; i < n; i++) {
+                    let sum = 0;
+                    for (let k = 0; k < j; k++) sum += L[i][k] * U[k][j];
+                    L[i][j] = A[i][j] - sum;
+                }
+                for (let i = j + 1; i < n; i++) {
+                    let sum = 0;
+                    for (let k = 0; k < j; k++) sum += L[j][k] * U[k][i];
+                    if (L[j][j] === 0) throw new Error("Error: División por cero en Crout (diagonal de L nula).");
+                    U[j][i] = (A[j][i] - sum) / L[j][j];
+                }
+            }
+            return { L, U };
+        }
+
+        function factorizeCholesky(A, n) {
+            // Verificar simetría
+            for(let i=0; i<n; i++) {
+                for(let j=0; j<n; j++) {
+                    if (Math.abs(A[i][j] - A[j][i]) > 1e-9) throw new Error("Cholesky requiere una matriz simétrica.");
+                }
+            }
+
+            let L = Array.from({ length: n }, () => Array(n).fill(0));
+            for (let i = 0; i < n; i++) {
+                for (let j = 0; j <= i; j++) {
+                    let sum = 0;
+                    for (let k = 0; k < j; k++) sum += L[i][k] * L[j][k];
+                    
+                    if (i === j) {
+                        let val = A[i][i] - sum;
+                        if (val <= 0) throw new Error("La matriz no es definida positiva.");
+                        L[i][j] = Math.sqrt(val);
+                    } else {
+                        L[i][j] = (A[i][j] - sum) / L[j][j];
+                    }
+                }
+            }
+            // U es la transpuesta de L
+            let U = L.map((_, colIndex) => L.map(row => row[colIndex]));
+            return { L, U };
+        }
+
+        function solveForward(L, b, n) {
+            const y = new Array(n).fill(0);
+            for (let i = 0; i < n; i++) {
+                let sum = 0;
+                for (let j = 0; j < i; j++) sum += L[i][j] * y[j];
+                y[i] = (b[i] - sum) / L[i][i];
+            }
+            return y;
+        }
+
+        function solveBackward(U, y, n) {
+            const x = new Array(n).fill(0);
+            for (let i = n - 1; i >= 0; i--) {
+                let sum = 0;
+                for (let j = i + 1; j < n; j++) sum += U[i][j] * x[j];
+                x[i] = (y[i] - sum) / U[i][i];
+            }
+            return x;
+        }
+
+        // --- INTERFAZ DE RESULTADOS ---
+
+        function displayResults(L, U, y, x) {
+            const resSec = document.getElementById('resultSection');
+            resSec.classList.remove('hidden');
+
+            const mDisp = document.getElementById('matricesDisplay');
+            mDisp.innerHTML = `
+                <div class="bg-gray-50 p-4 rounded-lg border">
+                    <h3 class="font-bold text-blue-600 mb-2">Matriz L (Triangular Inferior)</h3>
+                    ${renderMatrix(L)}
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg border">
+                    <h3 class="font-bold text-green-600 mb-2">Matriz U (Triangular Superior)</h3>
+                    ${renderMatrix(U)}
+                </div>
+            `;
+
+            const sSteps = document.getElementById('solutionSteps');
+            sSteps.innerHTML = `
+                <div class="step-card p-4 rounded shadow-sm">
+                    <h3 class="font-bold text-gray-700">1. Sustitución hacia adelante (Ly = b):</h3>
+                    <p class="mt-2 font-mono text-blue-800 text-lg">y = [${y.map(v => v.toFixed(4)).join(', ')}]</p>
+                </div>
+                <div class="step-card p-4 rounded shadow-sm border-l-green-500">
+                    <h3 class="font-bold text-gray-700">2. Sustitución hacia atrás (Ux = y):</h3>
+                    <p class="mt-2 font-mono text-green-800 text-2xl font-bold">x = [${x.map(v => v.toFixed(4)).join(', ')}]</p>
+                </div>
+            `;
+        }
+
+        function renderMatrix(matrix) {
+            let html = '<table class="w-full text-center border-collapse font-mono">';
+            matrix.forEach(row => {
+                html += '<tr>';
+                row.forEach(cell => {
+                    html += `<td class="border p-2 text-sm">${cell.toFixed(4)}</td>`;
+                });
+                html += '</tr>';
+            });
+            html += '</table>';
+            return html;
+        }
+
+        function showError(msg) {
+            const err = document.getElementById('errorMessage');
+            err.innerText = msg;
+            err.classList.remove('hidden');
+            document.getElementById('resultSection').classList.add('hidden');
+        }
+
+        // Inicializar
+        window.onload = generateInputs;
+    </script>
+</body>
+</html>
